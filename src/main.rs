@@ -4,7 +4,7 @@ use gfx_backend_dx12 as back;
 use gfx_backend_metal as back;
 #[cfg(feature = "vulkan")]
 use gfx_backend_vulkan as back;
-//butt test
+
 use arrayvec::ArrayVec;
 use core::mem::ManuallyDrop;
 use gfx_hal::{
