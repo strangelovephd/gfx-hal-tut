@@ -1,5 +1,28 @@
-use winit::{CreationError, Event, EventsLoop, Window, WindowBuilder, WindowEvent};
-use winit::dpi::LogicalSize;
+#[cfg(feature = "dx12")]
+use gfx_backend_dx12 as back;
+#[cfg(feature = "metal")]
+use gfx_backend_metal as back;
+#[cfg(feature = "vulkan")]
+use gfx_backend_vulkan as back;
+
+use arrayvec::ArrayVec;
+use core::mem::ManuallyDrop;
+use gfx_hal::{
+  adapter::{Adapter, PhysicalDevice},
+  command::{ClearColor, ClearValue, CommandBuffer, MultiShot, Primary},
+  device::Device,
+  format::{Aspects, ChannelType, Format, Swizzle},
+  image::{Extent, Layout, SubresourceRange, Usage, ViewKind},
+  pass::{Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, SubpassDesc},
+  pool::{CommandPool, CommandPoolCreateFlags},
+  pso::{PipelineStage, Rect},
+  queue::{family::QueueGroup, Submission},
+  window::{Backbuffer, FrameSync, PresentMode, Swapchain, SwapchainConfig},
+  Backend, Gpu, Graphics, Instance, QueueFamily, Surface,
+};
+use winit::{
+  dpi::LogicalSize, CreationError, Event, EventsLoop, Window, WindowBuilder, WindowEvent,
+};
 
 pub const WINDOW_NAME: &str = "Hello Winit";
 
@@ -34,6 +57,80 @@ impl WinitState {
             events_loop,
             window,
         })
+    }
+}
+
+pub struct HalState {
+  current_frame: usize,
+  frames_in_flight: usize,
+  in_flight_fences: Vec<<back::Backend as Backend>::Fence>,
+  render_finished_semaphores: Vec<<back::Backend as Backend>::Semaphore>,
+  image_available_semaphores: Vec<<back::Backend as Backend>::Semaphore>,
+  command_buffers: Vec<CommandBuffer<back::Backend, Graphics, MultiShot, Primary>>,
+  command_pool: ManuallyDrop<CommandPool<back::Backend, Graphics>>,
+  framebuffers: Vec<<back::Backend as Backend>::Framebuffer>,
+  image_views: Vec<(<back::Backend as Backend>::ImageView)>,
+  render_pass: ManuallyDrop<<back::Backend as Backend>::RenderPass>,
+  render_area: Rect,
+  queue_group: QueueGroup<back::Backend, Graphics>,
+  swapchain: ManuallyDrop<<back::Backend as Backend>::Swapchain>,
+  device: ManuallyDrop<back::Device>,
+  _adapter: Adapter<back::Backend>,
+  _surface: <back::Backend as Backend>::Surface,
+  _instance: ManuallyDrop<back::Instance>,
+}
+
+impl HalState {
+    pub fn new(window: &Window) -> Result<Self, &'static str> {
+        unimplemented!();
+    }
+
+    pub fn draw_clear_frame(&mut self, color: [f32; 4]) -> Result<(), &'static str> {
+        // SETUP FOR THIS FRAME
+        let image_available = &self.image_available_semaphores[self.current_frame];
+        let render_finished = &self.render_finished_semaphores[self.current_frame];
+        // Advance the frame before we start using the '?' operator
+        self.current_frame = (self.current_frame + 1) % self.frames_in_flight;
+
+        let (i_u32, i_usize) = unsafe {
+            let image_index = self
+                .swapchain
+                .acquire_image(core::u64::MAX, FrameSync::Semaphore(image_available))
+                .map_err(|_| "Couldn't acquire an image from the swapchain!")?;
+            (image_index, image_index as usize);
+        };
+
+
+        // RECORD SOME COMMANDS
+        unsafe {
+            let buffer = &mut self.command_bufferrs[i_usize];
+            let clear_values = [ClearValue::Color(ClearColor::Float(color))];
+            buffer.begin(false);
+            buffer.begin_render_pass_inline(
+                &self.render_pass,
+                &self.swapchain_framebuffers[i_usize],
+                self.render_area,
+                clear_values.iter(),
+            );
+            buffer.finish();
+        }
+
+        // SUBMISSION
+        let command_buffers: ArrayVec<[_; 1]> = [the_command_buffer].into();
+        let wait_semaphores: ArrayVec<[_; 1]> = [(image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)].into();
+        let signal_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
+        let present_wait_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
+        let submission = Submission {
+            command_buffers,
+            wait_semaphores,
+            signal_semaphores,
+        };
+
+        unsafe {
+            the_command_queue.submit(submission, Some(flight_fence));
+            the_swapchain.present(&mut the_command_queue, i_u32, present_wait_semaphores)
+                .map_err(|_| "Failed to present into the swapchain!")
+        }
     }
 }
 
