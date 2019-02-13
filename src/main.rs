@@ -82,7 +82,48 @@ pub struct HalState {
 
 impl HalState {
     pub fn new(window: &Window) -> Result<Self, &'static str> {
-        unimplemented!();
+        // CREATE INSTANCE
+        let instance = back::Instance::create(WINDOW_NAME, 1);
+
+        // CREATE SURFACE
+        let mut surface = instance.create_surface(window);
+
+        // CREATE ADAPTER
+        let adapter = instance
+            .enumerate_adapters()
+            .into_iter()
+            .find(|a| {
+                a.queue_families
+                    .iter()
+                    .any(|qf| qf.supports_graphics() && surface.supports_queue_family(qf))
+            })
+            .ok_or("Couldn't find a graphical adapter!")?;
+
+        // DEVICE AND QUEUEGROUP
+        let (device, queue_group) = {
+            let queue_family = adapter
+                .queue_families
+                .iter()
+                .find(|qf| qf.supports_graphics() && surface.supports_queue_family(qf))
+                .ok_or("Couldn't find a QueueFamily with graphics!")?;
+            let GPU { device, mut queues } = unsafe {
+                adapter
+                    .physical_device
+                    .open(&[(&queue_family, &[1.0; 1])])
+                    .map_err(|_| "Couldn't open the PhysicalDevice!")?
+            };
+            let queue_group = queues
+                .take::<Graphics>(queue_family.id())
+                .ok_or("Couldn't take ownership of the QueueGroup!")?;
+            let _ = if queue_group.queues.len() > 0 {
+                Ok(())
+            } else {
+                Err("The QueueGroup did not have any CommandQueues available!")
+            }?;
+            (device, queue_group)
+        };
+
+        // TODO: SWAPCHAIN        
     }
 
     pub fn draw_clear_frame(&mut self, color: [f32; 4]) -> Result<(), &'static str> {
