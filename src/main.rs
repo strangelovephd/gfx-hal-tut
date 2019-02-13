@@ -23,6 +23,7 @@ use gfx_hal::{
 use winit::{
   dpi::LogicalSize, CreationError, Event, EventsLoop, Window, WindowBuilder, WindowEvent,
 };
+use log::info;
 
 pub const WINDOW_NAME: &str = "Hello Winit";
 
@@ -123,7 +124,63 @@ impl HalState {
             (device, queue_group)
         };
 
-        // TODO: SWAPCHAIN        
+        // TODO: SWAPCHAIN
+        let (swapchain, extent, backbuffer, format, frames_in_flight) = {
+            let (caps, preferrer_formats, present_modes, composite_alphas) = surface.compatibility(&adapter.physical_device);
+            info!("{:?}", caps);
+            info!("Preferred Formats: {:?}", preferrer_formats);
+            info!("Present Modes: {:?}", present_modes);
+            info!("Composite Alphas: {:?}", composite_alphas);
+            
+            let present_mode = {
+                use gfx_hal::window::PresentMode::*;
+                [Mailbox, Fifo, Relaxed, Immediate]
+                    .iter()
+                    .cloned()
+                    .find(|pm| present_modes.contains(pm))
+                    .ok_or("No CompositeAlpha values specified!")?
+            };
+            let format = match preferrer_formats {
+                None => Format::RgbaSrgb,
+                Some(formats) => match formats
+                    .iter()
+                    .find(|format| format.base_format().1 == ChannelType::Srgb)
+                    .cloned()
+                    {
+                        Some(srgb_format) => srgb_format,
+                        None => formats.get(0).cloned().ok_or("Preferred format list was empty!")?,
+                    },
+            };
+            let extent = caps.extents.end;
+            let image_count = if present_mode == PresentMode::Mailbox {
+                (caps.image_count.end - 1).min(3)
+            } else {
+                (caps.image_count.end - 1).min(2)
+            };
+            let image_layers = 1;
+            let image_usage = if caps.usage.contains(Usage::COLOR_ATTACHMENT) {
+                Usage::COLOR_ATTACHMENT
+            } else {
+                Err("The Surface isn't capable of supporting color!")?
+            };
+            let swapchain_config = SwapchainConfig {
+                present_mode,
+                composite_alpha,
+                format,
+                extent,
+                image_count,
+                image_layers,
+                image_usage,
+            };
+            info!("{:?}", swapchain_config);
+            //
+            let (swapchain, backbuffer) = unsafe {
+                device.create_swapchain(&mut surface, swapchain_config, None)
+                .map_err(|_| "Failed to create the swapchain!")?
+            };
+            (swapchain, extent, backbuffer, format, image_count as usize)
+
+        };
     }
 
     pub fn draw_clear_frame(&mut self, color: [f32; 4]) -> Result<(), &'static str> {
